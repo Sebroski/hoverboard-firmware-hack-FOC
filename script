@@ -1,0 +1,133 @@
+document.addEventListener('DOMContentLoaded', function() {
+
+    const form = document.getElementById('votingForm');
+    const regionSelect = document.getElementById('region');
+    const comunaSelect = document.getElementById('comuna');
+    const messageDiv = document.getElementById('formMessage');
+    const submitButton = document.getElementById('submitButton');
+
+    // --- 1. Lógica para Comunas dependientes ---
+    regionSelect.addEventListener('change', function() {
+        const regionId = this.value;
+        comunaSelect.disabled = true; // Deshabilitar mientras carga
+        comunaSelect.innerHTML = '<option value="">Cargando...</option>';
+
+        if (regionId) {
+            // Usamos Fetch API para la llamada Ajax (GET)
+            fetch(api.php?action=getComunas&region_id=${regionId})
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Error en la red');
+                    }
+                    return response.json();
+                })
+                .then(comunas => {
+                    comunaSelect.innerHTML = '<option value="" disabled selected>Seleccione una comuna</option>';
+                    comunas.forEach(comuna => {
+                        const option = document.createElement('option');
+                        option.value = comuna.id;
+                        option.textContent = comuna.nombre;
+                        comunaSelect.appendChild(option);
+                    });
+                    comunaSelect.disabled = false; // Habilitar al terminar
+                })
+                .catch(error => {
+                    console.error('Error al cargar comunas:', error);
+                    comunaSelect.innerHTML = '<option value="">Error al cargar</option>';
+                });
+        } else {
+            comunaSelect.innerHTML = '<option value="">Seleccione una región primero</option>';
+        }
+    });
+
+    // --- 2. Lógica de Envío del Formulario (Submit) ---
+    form.addEventListener('submit', function(event) {
+        event.preventDefault(); // Prevenir el envío HTML tradicional
+        messageDiv.className = 'message'; // Resetear mensajes
+        messageDiv.textContent = '';
+
+        // --- 3. Validación del Cliente ---
+        let errors = [];
+        const nombre = document.getElementById('nombre').value.trim();
+        const alias = document.getElementById('alias').value.trim();
+        const rut = document.getElementById('rut').value.trim();
+        const email = document.getElementById('email').value.trim();
+        const region = regionSelect.value;
+        const comuna = comunaSelect.value;
+        const candidato = document.getElementById('candidato').value;
+        const comoSeEntero = document.querySelectorAll('input[name="como_se_entero[]"]:checked');
+
+        if (nombre === '') errors.push('Nombre y Apellido no puede estar vacío.');
+        if (alias.length <= 5 || !/^[a-zA-Z0-9]+$/.test(alias)) errors.push('Alias debe tener más de 5 caracteres (letras y números).');
+        if (rut === '' || !validarRut(rut)) errors.push('RUT no es válido.');
+        if (email === '' || !validarEmail(email)) errors.push('Email no es válido.');
+        if (region === '') errors.push('Debe seleccionar una Región.');
+        if (comuna === '') errors.push('Debe seleccionar una Comuna.');
+        if (candidato === '') errors.push('Debe seleccionar un Candidato.');
+        if (comoSeEntero.length < 2) errors.push('Debe seleccionar al menos dos opciones en "Cómo se enteró".');
+
+        if (errors.length > 0) {
+            // Mostrar errores
+            messageDiv.className = 'message error';
+            messageDiv.innerHTML = errors.join('<br>');
+            return;
+        }
+
+        // --- 4. Envío por Ajax (POST) ---
+        submitButton.disabled = true;
+        submitButton.textContent = 'Enviando...';
+
+        const formData = new FormData(form);
+        formData.append('action', 'submitForm'); // Añadir la acción para la API
+
+        fetch('api.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                messageDiv.className = 'message success';
+                messageDiv.textContent = data.message;
+                form.reset(); // Limpiar el formulario
+                comunaSelect.innerHTML = '<option value="">Seleccione una región primero</option>';
+                comunaSelect.disabled = true;
+            } else {
+                messageDiv.className = 'message error';
+                messageDiv.textContent = data.message;
+            }
+        })
+        .catch(error => {
+            console.error('Error en el envío:', error);
+            messageDiv.className = 'message error';
+            messageDiv.textContent = 'Ocurrió un error inesperado. Intente de nuevo.';
+        })
+        .finally(() => {
+            // Reactivar el botón
+            submitButton.disabled = false;
+            submitButton.textContent = 'Votar';
+        });
+    });
+
+    // --- Funciones de Validación Auxiliares ---
+
+    function validarEmail(email) {
+        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return re.test(String(email).toLowerCase());
+    }
+
+    // Función básica de validación de RUT Chileno (Dígito Verificador)
+    function validarRut(rut) {
+        rut = rut.replace(/\./g, '').replace('-', ''); // Limpiar puntos y guion
+        if (!/^[0-9]+[0-9kK]$/.test(rut)) return false; // Formato básico
+
+        let T = rut.slice(0, -1);
+        let M = 0, S = 1;
+        for (; T; T = Math.floor(T / 10)) {
+            S = (S + T % 10 * (9 - M++ % 6)) % 11;
+        }
+        let dv = S ? S - 1 : 'k';
+        return dv == rut.slice(-1).toLowerCase();
+    }
+
+});
